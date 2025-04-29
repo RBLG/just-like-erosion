@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "just-like-erosion",
+	"version": "${version}",
+	"name": "Just Like Erosion",
+	"description": "TODO",
+	"authors": [
+		"Teluri"
+	],
+	"contact": {
+		"homepage": "TODO",
+		"sources": "https://github.com/RBLG/just-like-erosion"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/just-like-erosion/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"teluri.mods.jle.JustLikeErosion"
+		],
+		"client": [
+			"teluri.mods.jle.JustLikeErosionClient"
+		]
+	},
+	"mixins": [
+		"just-like-erosion.mixins.json",
+		{
+			"config": "just-like-erosion.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.16.14",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		//"just-like-rays": "*"
+	}
+}
