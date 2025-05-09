@@ -20,7 +20,8 @@ public class FloodFillEngine {
 		}
 	}
 
-	public void processScheduled(CursorConsumer cc) {
+	public boolean processScheduled(CursorConsumer cc) {
+		boolean stable = false;
 		FloodFillCursor cursor;
 		while ((cursor = scheduled.poll()) != null) {
 			int x = cursor.x;
@@ -29,13 +30,14 @@ public class FloodFillEngine {
 			Direction origin = cursor.origin;
 
 			available.push(cursor);
-			cc.consume(x, y, value, origin);
+			stable &= cc.consume(x, y, value, origin);
 		}
+		return stable;
 	}
 
 	@FunctionalInterface
 	public static interface CursorConsumer {
-		void consume(int x, int y, float value, Direction origin);
+		boolean consume(int x, int y, float value, Direction origin);
 	}
 
 	public static class FloodFillCursor {
