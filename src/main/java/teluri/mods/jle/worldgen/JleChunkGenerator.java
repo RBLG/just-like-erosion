@@ -20,6 +20,8 @@ import net.minecraft.world.level.levelgen.blending.Blender;
 
 public class JleChunkGenerator extends ChunkGenerator {
 
+	JleWorldGenEngine wgengine = new JleWorldGenEngine();
+
 	public JleChunkGenerator(BiomeSource biomeSource) {
 		super(biomeSource);
 		// TODO Auto-generated constructor stub
@@ -34,19 +36,19 @@ public class JleChunkGenerator extends ChunkGenerator {
 	@Override
 	public void applyCarvers(WorldGenRegion level, long seed, RandomState random, BiomeManager biomeManager, StructureManager structureManager, ChunkAccess chunk) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
 	public void buildSurface(WorldGenRegion level, StructureManager structureManager, RandomState random, ChunkAccess chunk) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
 	public void spawnOriginalMobs(WorldGenRegion level) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -88,7 +90,7 @@ public class JleChunkGenerator extends ChunkGenerator {
 	@Override
 	public void addDebugScreenInfo(List<String> info, RandomState random, BlockPos pos) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 }
