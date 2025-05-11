@@ -3,6 +3,7 @@
 	"package": "teluri.mods.jle.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
+		"NoiseBasedChunkGeneratorMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

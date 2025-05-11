@@ -12,12 +12,21 @@ public class FloodFillEngine {
 		scheduled.push(cursor.set(x, y, value, next));
 	}
 
-	public void scheduleNeighbors(int x, int y, float value, Direction previous) {
+	public void scheduleNeighbors(int cx, int cy, float value, Direction previous, BoundsChecker checker) {
 		for (Direction dir : Direction.values()) {
 			if (dir != previous.opposite()) {
-				schedule(x + dir.x, y + dir.y, value, dir);
+				int nx = cx + dir.x;
+				int ny = cy + dir.y;
+				if (checker.check(nx, ny)) {
+					schedule(nx, ny, value, dir);
+				}
 			}
 		}
+	}
+
+	@FunctionalInterface
+	public static interface BoundsChecker {
+		boolean check(int x, int y);
 	}
 
 	public boolean processScheduled(CursorConsumer cc) {
