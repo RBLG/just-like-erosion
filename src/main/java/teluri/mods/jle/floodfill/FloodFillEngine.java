@@ -1,45 +1,68 @@
 package teluri.mods.jle.floodfill;
 
-import java.util.ArrayDeque;
+import org.slf4j.Logger;
+
+import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import teluri.mods.jle.JustLikeErosion;
 
 public class FloodFillEngine {
-	protected ArrayDeque<FloodFillCursor> available = new ArrayDeque<>();
-	protected ArrayDeque<FloodFillCursor> scheduled = new ArrayDeque<>();
+	public static final Logger LOGGER = JustLikeErosion.LOGGER;
+
+	protected LongArrayFIFOQueue scheduled = new LongArrayFIFOQueue(); // TODO replace by a long array manually managed
+
+	// protected ArrayDeque<FloodFillCursor> available = new ArrayDeque<>();
+	// protected ArrayDeque<FloodFillCursor> scheduled = new ArrayDeque<>();
 
 	public void schedule(int x, int y, float value, Direction next) {
-		FloodFillCursor cursor = available.pop();
-		cursor = cursor != null ? cursor : new FloodFillCursor();
-		scheduled.push(cursor.set(x, y, value, next));
+		// FloodFillCursor cursor = available.pollFirst();
+		// cursor = cursor != null ? cursor : new FloodFillCursor();
+		// scheduled.addLast(cursor.set(x, y, value, next));
+		scheduled.enqueue(getPacked(x, y, value, next));
 	}
 
-	public void scheduleNeighbors(int cx, int cy, float value, Direction previous, BoundsChecker checker) {
-		for (Direction dir : Direction.values()) {
-			if (dir != previous.opposite()) {
-				int nx = cx + dir.x;
-				int ny = cy + dir.y;
-				if (checker.check(nx, ny)) {
-					schedule(nx, ny, value, dir);
-				}
-			}
-		}
+	public long getPacked(int x, int y, float value, Direction next) {
+		return FloodFillCursor.packCursor(x, y, value, next);
 	}
 
 	@FunctionalInterface
 	public static interface BoundsChecker {
-		boolean check(int x, int y);
+		boolean isInBounds(int x, int y);
 	}
 
-	public boolean processScheduled(CursorConsumer cc) {
-		boolean stable = false;
-		FloodFillCursor cursor;
-		while ((cursor = scheduled.poll()) != null) {
-			int x = cursor.x;
-			int y = cursor.y;
-			float value = cursor.value;
-			Direction origin = cursor.origin;
+	public boolean processScheduled(BoundsChecker checker, CursorConsumer cc) {
+		boolean stable = true;
+		long count = 0;
+		while (!scheduled.isEmpty()) {
+			long packedCursor = scheduled.dequeueLong();
+			// FloodFillCursor cursor = scheduled.pollFirst();
+			// int x = cursor.x;
+			// int y = cursor.y;
+			// float value = cursor.value;
+			// Direction origin = cursor.origin;
+			// stable &= cc.consume(x, y, value, origin);
+			stable &= usePacked(packedCursor, cc, checker);
+			count++;
+		}
+		LOGGER.info(String.format("floodfill completed as %s in %d steps", stable ? "stable  " : "unstable", count));
+		return stable;
+	}
 
-			available.push(cursor);
-			stable &= cc.consume(x, y, value, origin);
+	protected boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker) {
+		int x = FloodFillCursor.unpackX(packedCursor);
+		int y = FloodFillCursor.unpackY(packedCursor);
+		float value = FloodFillCursor.unpackValue(packedCursor);
+		Direction previous = FloodFillCursor.unpackDir(packedCursor);
+		boolean stable = true;
+		for (Direction dir : Direction.VALUES) {
+			if (dir.opposite() == previous) {
+				continue;
+			}
+			int x2 = x + dir.x;
+			int y2 = y + dir.y;
+			if (!checker.isInBounds(x2, y2)) {
+				continue;
+			}
+			stable &= cc.consume(x2, y2, value, dir);
 		}
 		return stable;
 	}
@@ -61,5 +84,68 @@ public class FloodFillEngine {
 			origin = norigin;
 			return this;
 		}
+
+		public static final long MASK_12 = 0xfffL;
+		public static final long MASK_8 = 0xffL;
+		public static final long MASK_4 = 0xfL;
+		public static final long OFFSET_DIR = 56;
+		public static final long OFFSET_X = 44;
+		public static final long OFFSET_Y = 32;
+
+		public static long packCursor(int nx, int ny, float nvalue, Direction norigin) { // Direction has 8 values max
+			int ordinal = norigin == null ? Direction.VALUES.length : norigin.ordinal();
+			long origin = (ordinal & MASK_4) << OFFSET_DIR;
+			long x = (nx & MASK_12) << OFFSET_X;
+			long y = (ny & MASK_12) << OFFSET_Y;
+			long value = Float.floatToIntBits(nvalue) & PackingHelper.MASK_32;
+
+			return origin | x | y | value;
+		}
+
+		public static float unpackValue(long packed) {
+			long raw = packed & PackingHelper.MASK_32;
+			return Float.intBitsToFloat((int) raw);
+		}
+
+		public static Direction unpackDir(long packed) {
+			long raw = (packed >>> OFFSET_DIR) & MASK_4;
+			return Direction.VALUES_FULL[(int) raw];
+		}
+
+		public static int unpackX(long packed) {
+			long raw = (packed >>> OFFSET_X) & MASK_12;
+			return (int) raw;
+		}
+
+		public static int unpackY(long packed) {
+			long raw = (packed >>> OFFSET_Y) & MASK_12;
+			return (int) raw;
+		}
 	}
+
+	public static class FloodFillEngineValueless extends FloodFillEngine {
+		@Override
+		public boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker) {
+			int x = PackingHelper.unpackX(packedCursor);
+			int y = PackingHelper.unpackY(packedCursor);
+			float value = 0;
+			// Direction origin = null;
+			boolean stable = true;
+			for (Direction dir : Direction.VALUES) {
+				int x2 = x + dir.x;
+				int y2 = y + dir.y;
+				if (!checker.isInBounds(x2, y2)) {
+					continue;
+				}
+				stable &= cc.consume(x2, y2, value, dir);
+			}
+			return stable;
+		}
+
+		@Override
+		public long getPacked(int x, int y, float value, Direction next) {
+			return PackingHelper.pack(x, y);
+		}
+	}
+
 }

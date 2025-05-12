@@ -19,7 +19,7 @@
 			"teluri.mods.jle.JustLikeErosion"
 		],
 		"client": [
-			"teluri.mods.jle.JustLikeErosionClient"
+			"teluri.mods.jle.client.JustLikeErosionClient"
 		]
 	},
 	"mixins": [
@@ -30,12 +30,10 @@
 		}
 	],
 	"depends": {
-		"fabricloader": ">=0.16.14",
+		"fabricloader": ">=0.16.7",
 		"minecraft": "~1.21.4",
 		"java": ">=21"
-		//,"fabric-api": "*"
 	},
 	"suggests": {
-		//"just-like-rays": "*"
 	}
 }

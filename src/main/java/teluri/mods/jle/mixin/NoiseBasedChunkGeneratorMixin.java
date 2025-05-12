@@ -20,11 +20,11 @@ import net.minecraft.world.level.levelgen.NoiseChunk;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.RandomState;
 import net.minecraft.world.level.levelgen.Heightmap.Types;
+import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import net.minecraft.world.level.levelgen.blending.Blender;
 import teluri.mods.jle.gen.JleWorldGenEngine;
-import teluri.mods.jle.gen.JleWorldGenEngine.GenRequest;
 
-@Mixin(NoiseBasedChunkGeneratorMixin.class)
+@Mixin(NoiseBasedChunkGenerator.class)
 public abstract class NoiseBasedChunkGeneratorMixin extends ChunkGenerator {
 
 	JleWorldGenEngine wgengine = new JleWorldGenEngine();
@@ -45,65 +45,78 @@ public abstract class NoiseBasedChunkGeneratorMixin extends ChunkGenerator {
 		int cellWidthDiv16 = 16 / cellWidth;
 		int cellWidthDiv16Two = 16 / cellWidth;
 
-		GenRequest completed = this.wgengine.request(chunkPos.x, chunkPos.z);
+		this.wgengine.request(chunkMinBlockX, chunkMinBlockZ, (completed) -> {
 
-		for (int o = 0; o < cellWidthDiv16; o++) {
-			noiseChunk.advanceCellX(o);
+			// for (int itx = 0; itx < 16; itx++) {
+			// for (int itz = 0; itz < 16; itz++) {
+			// for (int ity = -50; ity < 329; ity++) {
+			//
+			// }
+			// }
+			// }
 
-			for (int p = 0; p < cellWidthDiv16Two; p++) {
-				int q = chunk.getSectionsCount() - 1;
-				LevelChunkSection levelChunkSection = chunk.getSection(q);
+			for (int o = 0; o < cellWidthDiv16; o++) {
+				noiseChunk.advanceCellX(o);
 
-				for (int r = cellCountY - 1; r >= 0; r--) {
-					noiseChunk.selectCellYZ(r, p);
+				for (int p = 0; p < cellWidthDiv16Two; p++) {
+					int q = chunk.getSectionsCount() - 1;
+					LevelChunkSection levelChunkSection = chunk.getSection(q);
 
-					for (int s = cellHeight - 1; s >= 0; s--) {
-						int cellEndBlockY = (minCellY + r) * cellHeight + s;
-						int localY = cellEndBlockY & 15;
-						int v = chunk.getSectionIndex(cellEndBlockY);
-						if (q != v) {
-							q = v;
-							levelChunkSection = chunk.getSection(v);
-						}
+					for (int r = cellCountY - 1; r >= 0; r--) {
+						noiseChunk.selectCellYZ(r, p);
 
-						double realY = (double) s / cellHeight;
-						noiseChunk.updateForY(cellEndBlockY, realY);
+						for (int s = cellHeight - 1; s >= 0; s--) {
+							int cellEndBlockY = (minCellY + r) * cellHeight + s;
+							int localY = cellEndBlockY & 15;
+							int v = chunk.getSectionIndex(cellEndBlockY);
+							if (q != v) {
+								q = v;
+								levelChunkSection = chunk.getSection(v);
+							}
 
-						for (int w = 0; w < cellWidth; w++) {
-							int cellEndBlockX = chunkMinBlockX + o * cellWidth + w;
-							int localX = cellEndBlockX & 15;
-							double realX = (double) w / cellWidth;
-							noiseChunk.updateForX(cellEndBlockX, realX);
+							double realY = (double) s / cellHeight;
+							noiseChunk.updateForY(cellEndBlockY, realY);
 
-							for (int z = 0; z < cellWidth; z++) {
-								int cellEndBlockZ = chunkMinBlockZ + p * cellWidth + z;
-								int localZ = cellEndBlockZ & 15;
-								double realZ = (double) z / cellWidth;
-								noiseChunk.updateForZ(cellEndBlockZ, realZ);
-								// BlockState blockState = noiseChunk.getInterpolatedState();
-								// TODO actual gen instead of that hack
-								BlockState blockState = completed.getHeightInCenter(localX, localZ) < localY ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
-								if (blockState == null) {
-									blockState = this.settings.value().defaultBlock();
-								}
+							for (int itx = 0; itx < cellWidth; itx++) {
+								int cellEndBlockX = chunkMinBlockX + o * cellWidth + itx;
+								int localX = cellEndBlockX & 15;
+								double realX = (double) itx / cellWidth;
+								noiseChunk.updateForX(cellEndBlockX, realX);
 
-								if (blockState != Blocks.AIR.defaultBlockState() && !SharedConstants.debugVoidTerrain(chunk.getPos())) {
-									levelChunkSection.setBlockState(localX, localY, localZ, blockState, false);
-									heightmapOcean.update(localX, cellEndBlockY, localZ, blockState);
-									heightmapSurface.update(localX, cellEndBlockY, localZ, blockState);
-									if (aquifer.shouldScheduleFluidUpdate() && !blockState.getFluidState().isEmpty()) {
-										mutableBlockPos.set(cellEndBlockX, cellEndBlockY, cellEndBlockZ);
-										chunk.markPosForPostprocessing(mutableBlockPos);
+								for (int itz = 0; itz < cellWidth; itz++) {
+									int cellEndBlockZ = chunkMinBlockZ + p * cellWidth + itz;
+									int localZ = cellEndBlockZ & 15;
+									double realZ = (double) itz / cellWidth;
+									noiseChunk.updateForZ(cellEndBlockZ, realZ);
+									// BlockState blockState = noiseChunk.getInterpolatedState();
+									// TODO actual gen instead of that hack
+									BlockState air = Blocks.AIR.defaultBlockState();
+									BlockState stone = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
+
+									float height = 60 + completed.get(cellEndBlockX, cellEndBlockZ);
+									BlockState blockState = height < cellEndBlockY ? air : stone;
+									if (blockState == null) {
+										blockState = this.settings.value().defaultBlock();
+									}
+
+									if (blockState != air && !SharedConstants.debugVoidTerrain(chunk.getPos())) {
+										levelChunkSection.setBlockState(localX, localY, localZ, blockState, false);
+										heightmapOcean.update(localX, cellEndBlockY, localZ, blockState);
+										heightmapSurface.update(localX, cellEndBlockY, localZ, blockState);
+										if (aquifer.shouldScheduleFluidUpdate() && !blockState.getFluidState().isEmpty()) {
+											mutableBlockPos.set(cellEndBlockX, cellEndBlockY, cellEndBlockZ);
+											chunk.markPosForPostprocessing(mutableBlockPos);
+										}
 									}
 								}
 							}
 						}
 					}
 				}
-			}
 
-			noiseChunk.swapSlices();
-		}
+				noiseChunk.swapSlices();
+			}
+		});
 
 		noiseChunk.stopInterpolation();
 		return chunk;

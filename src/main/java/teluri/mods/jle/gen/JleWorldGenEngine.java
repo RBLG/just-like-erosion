@@ -2,35 +2,45 @@ package teluri.mods.jle.gen;
 
 import java.util.ArrayDeque;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.function.Consumer;
 
-import org.joml.Vector2i;
+import org.slf4j.Logger;
 
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import teluri.mods.jle.floodfill.FloodFillEngine;
+import teluri.mods.jle.JustLikeErosion;
 import teluri.mods.jle.floodfill.PackingHelper;
 
 public class JleWorldGenEngine {
+	public static final Logger LOGGER = JustLikeErosion.LOGGER;
 
 	ConcurrentLinkedDeque<GenRequest> genRequests = new ConcurrentLinkedDeque<>();
 
-	public static final int CACHE_SIZE = 10;
+	public static final int CACHE_SIZE = 32;
 
 	ArrayDeque<GenRequest> cache = new ArrayDeque<>(CACHE_SIZE);
 
-	protected final BadNoise2D shoreProv = new BadNoise2D(20);
-	protected final BadNoise2D strenProv = new BadSteepNoise2D(17);
+	protected final BadNoise2D shoreProv = new BadNoise2D(40);
+	protected final BadNoise2D strenProv = new BadSteepNoise2D(2);
 
-	public GenRequest request(int chkx, int chky) {
-		GenRequest request = new GenRequest(this, chkx, chky);
-		request.generateHeight();
+	public synchronized void request(int wox, int woy, Consumer<HeightSupplier> consumer) {
+		int oregx = Math.floorDiv(wox, BigRegionData.SIZE);
+		int oregy = Math.floorDiv(woy, BigRegionData.SIZE);
+
+		BigRegionData lregion = peekBigRegion(oregx, oregy);
+		if (lregion != null && lregion.rangedStable) {
+			consumer.accept(lregion::getHeight);
+			return;
+		}
+		GenRequest request = new GenRequest(this, wox, woy);
+
+		request.requestHeight();
 
 		if (CACHE_SIZE <= cache.size()) {
-			GenRequest uncachedRequest = cache.pop();
+			GenRequest uncachedRequest = cache.pollLast();
 			uncachedRequest.unload();
 		}
-		cache.push(request);
-		return request;
+		cache.addFirst(request);
+
+		consumer.accept(request.getOutput());
 	}
 
 	public BigRegionData loadBigRegion(int regx, int regy) {
@@ -42,120 +52,23 @@ public class JleWorldGenEngine {
 			}
 		}
 		// TODO check disk if it already exist and only then make a new one
-		return new BigRegionData(regx, regy, shoreProv, strenProv); // TODO shore/strength supplier
+		return new BigRegionData(regx, regy, shoreProv, strenProv);
 	}
 
-	public static class GenRequest {
-		long packedChunkPos;
-		Vector2i oreg = new Vector2i();
-		Vector2i ochk = new Vector2i();
-
-		// ChunkStatus requested;
-		public Long2ObjectOpenHashMap<ChunkData> chunks = new Long2ObjectOpenHashMap<>();
-		public Long2ObjectOpenHashMap<BigRegionData> regions = new Long2ObjectOpenHashMap<>();
-		public BigRegionData center;
-
-		JleWorldGenEngine jwge; // TODO replace it by a supplier
-
-		FloodFillEngine ffe = new FloodFillEngine();
-
-		public GenRequest(JleWorldGenEngine njwge, int nchkposx, int nchkposy) {
-			jwge = njwge;
-			ochk.set(nchkposx, nchkposy);
-			oreg.set(ochk).mul(ChunkData.SIZE).div(BigRegionData.SIZE);
-
-		}
-
-		public void unload() {
-			regions.forEach((key, region) -> {
-				region.save();
-			});
-			chunks.forEach((key, chunk) -> {
-				chunk.save();
-			});
-		}
-
-		public float getHeightInCenter(int wx, int wy) { // TODO replace y by z on jle side
-			// int regx = Math.floorDiv(wx, BigRegionData.SIZE);
-			// int regy = Math.floorDiv(wy, BigRegionData.SIZE);
-			int owx = Math.floorMod(wx, BigRegionData.SIZE);
-			int owy = Math.floorMod(wy, BigRegionData.SIZE);
-			// long packed = PackingHelper.pack(regx, regy);
-			// BigRegionData region = this.regions.get(packed);
-			BigRegionData region = center;
-
-			return region == null ? -100 : region.height[BigRegionData.getIndex(owx, owy)]; // TODO properly handle center
-		}
-
-		public void generateHeight() {
-			findWater();
-			propagateHeight();
-		}
-
-		public static final int SAFETY_RANGE = 2;// TODO replace by range estimate from toughness
-
-		public void findWater() {
-			long[] range = new long[] { Long.MAX_VALUE / 2 }; // HACK replace with proper boxing
-
-			this.center = jwge.loadBigRegion(oreg.x, oreg.y);
-
-			ffe.schedule(oreg.x, oreg.y, 0, null);
-
-			ffe.processScheduled((regx, regy, unused, dir) -> {
-				long packed = PackingHelper.pack(regx, regy);
-				if (this.regions.containsKey(packed)) {
-					return true;
-				}
-				BigRegionData region = jwge.loadBigRegion(regx, regy);
-				regions.put(packed, region);
-				boolean hasWater = region.scheduleShores();
-
-				long ndist = oreg.gridDistance(regx, regy);
-				long nsafedist = ndist + SAFETY_RANGE;
-
-				if (nsafedist < range[0] && hasWater) {
-					range[0] = nsafedist;
-				}
-
-				if (ndist < range[0]) {
-					ffe.scheduleNeighbors(regx, regy, unused, dir, (x, y) -> true);
-				}
-
-				return false;
-			});
-		}
-
-		public void propagateHeight() {
-			boolean stable = false;
-			while (!stable) {
-				for (Entry<BigRegionData> entry : regions.long2ObjectEntrySet()) {
-					BigRegionData region = entry.getValue();
-					long packed = entry.getLongKey();
-					BigRegionData south = regions.get(PackingHelper.add(packed, 0, 1));
-					if (south != null) {
-						region.propagateHeightOnSouthBorder(south);
-					}
-					BigRegionData east_ = regions.get(PackingHelper.add(packed, 1, 0));
-					if (east_ != null) {
-						region.propagateHeightOnEastBorder(east_);
-					}
-				}
-				stable = true;
-				for (Entry<BigRegionData> entry : regions.long2ObjectEntrySet()) {
-					stable &= entry.getValue().propagateLocalHeight();
-				}
-
+	public BigRegionData peekBigRegion(int regx, int regy) {
+		for (GenRequest request : cache) {
+			long packed = PackingHelper.pack(regx, regy);
+			BigRegionData region = request.regions.get(packed);
+			if (region != null) {
+				return region;
 			}
 		}
-
-		protected void propagateHeightOnBorder(boolean init) {
-
-		}
+		return null;
 	}
 
 	@FunctionalInterface
 	public static interface ValueSupplier {
-		float getValue(int x, int y);
+		float getValue(float x, float y);
 	}
 
 	public static class BadNoise2D implements ValueSupplier {
@@ -165,27 +78,29 @@ public class JleWorldGenEngine {
 			scale = nscale;
 		}
 
-		public float getValue(int x, int y) { // interpolated
-			int cx1 = Math.floorDiv(x, scale);
-			int cy1 = Math.floorDiv(y, scale);
-			int cx2 = cx1 + 1;
-			int cy2 = cy1 + 1;
+		public float getValue(float x, float y) { // interpolated
+			x /= scale;
+			y /= scale;
+			float cx1 = org.joml.Math.floor(x);
+			float cy1 = org.joml.Math.floor(y);
+			float cx2 = cx1 + 1;
+			float cy2 = cy1 + 1;
+			float ratiox = (cx2 - x);
+			float ratioy = (cy2 - y);
 
 			float pre1 = getCornerValue(cx1, cy1);
 			float pre2 = (cy1 == y) ? 0 : getCornerValue(cx1, cy2);
 			if (cx1 != x) {
-				int ratiox = (cx2 - x);
 				pre1 = pre1 * ratiox + getCornerValue(cx2, cy1) * (1 - ratiox);
 				pre2 = (cy1 == y) ? 0 : pre2 * ratiox + getCornerValue(cx2, cy2) * (1 - ratiox);
 			}
-			int ratioy = (cy2 - y);
 			float value = pre1 * ratioy + pre2 * (1 - ratioy);
 			return value;
 		}
 
-		public static float getCornerValue(int cx, int cy) {
+		public static float getCornerValue(float cx, float cy) {
 			double val = (org.joml.Math.sin(cx * 12.9898f + cy * 78.233f) * 43758.5453123);
-			return (float) (val - org.joml.Math.floor(val));
+			return (float) Math.abs((val - org.joml.Math.floor(val)));
 		}
 	}
 
@@ -194,12 +109,13 @@ public class JleWorldGenEngine {
 			super(nscale);
 		}
 
-		public float getValue(int x, int y) { // interpolated
-			int cx1 = Math.floorDiv(x, scale);
-			int cy1 = Math.floorDiv(y, scale);
-			float pre1 = getCornerValue(cx1, cy1) + getCornerValue(cx1 + 1, cy1);
-			float pre2 = getCornerValue(cx1, cy1 + 1) + getCornerValue(cx1 + 1, cy1 + 1);
-			return (pre1 + pre2) * 0.25f;
+		public float getValue(float x, float y) { // interpolated
+			// int cx1 = Math.floorDiv(x, scale);
+			// int cy1 = Math.floorDiv(y, scale);
+			// float pre1 = getCornerValue(cx1, cy1) + getCornerValue(cx1 + 1, cy1);
+			// float pre2 = getCornerValue(cx1, cy1 + 1) + getCornerValue(cx1 + 1, cy1 + 1);
+			// return (pre1 + pre2) * 0.25f;
+			return getCornerValue(x, y);
 		}
 	}
 
@@ -218,5 +134,10 @@ public class JleWorldGenEngine {
 		public void save() {
 			// TODO handle saving
 		}
+	}
+
+	@FunctionalInterface
+	public static interface HeightSupplier {
+		float get(int wx, int wy);
 	}
 }
