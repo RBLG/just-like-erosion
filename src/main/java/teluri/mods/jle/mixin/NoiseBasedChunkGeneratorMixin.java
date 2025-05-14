@@ -26,6 +26,9 @@ import teluri.mods.jle.gen.JleWorldGenEngine;
 
 @Mixin(NoiseBasedChunkGenerator.class)
 public abstract class NoiseBasedChunkGeneratorMixin extends ChunkGenerator {
+	private static final BlockState AIR = Blocks.AIR.defaultBlockState();
+	private static final BlockState STONE = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
+	private static final BlockState WATER = Blocks.WATER.defaultBlockState();
 
 	JleWorldGenEngine wgengine = new JleWorldGenEngine();
 
@@ -56,14 +59,14 @@ public abstract class NoiseBasedChunkGeneratorMixin extends ChunkGenerator {
 			// }
 
 			for (int o = 0; o < cellWidthDiv16; o++) {
-				noiseChunk.advanceCellX(o);
+				// noiseChunk.advanceCellX(o);
 
 				for (int p = 0; p < cellWidthDiv16Two; p++) {
 					int q = chunk.getSectionsCount() - 1;
 					LevelChunkSection levelChunkSection = chunk.getSection(q);
 
 					for (int r = cellCountY - 1; r >= 0; r--) {
-						noiseChunk.selectCellYZ(r, p);
+						// noiseChunk.selectCellYZ(r, p);
 
 						for (int s = cellHeight - 1; s >= 0; s--) {
 							int cellEndBlockY = (minCellY + r) * cellHeight + s;
@@ -74,32 +77,36 @@ public abstract class NoiseBasedChunkGeneratorMixin extends ChunkGenerator {
 								levelChunkSection = chunk.getSection(v);
 							}
 
-							double realY = (double) s / cellHeight;
-							noiseChunk.updateForY(cellEndBlockY, realY);
+							// double realY = (double) s / cellHeight;
+							// noiseChunk.updateForY(cellEndBlockY, realY);
 
 							for (int itx = 0; itx < cellWidth; itx++) {
 								int cellEndBlockX = chunkMinBlockX + o * cellWidth + itx;
 								int localX = cellEndBlockX & 15;
-								double realX = (double) itx / cellWidth;
-								noiseChunk.updateForX(cellEndBlockX, realX);
+								// double realX = (double) itx / cellWidth;
+								// noiseChunk.updateForX(cellEndBlockX, realX);
 
 								for (int itz = 0; itz < cellWidth; itz++) {
 									int cellEndBlockZ = chunkMinBlockZ + p * cellWidth + itz;
 									int localZ = cellEndBlockZ & 15;
-									double realZ = (double) itz / cellWidth;
-									noiseChunk.updateForZ(cellEndBlockZ, realZ);
+									// double realZ = (double) itz / cellWidth;
+									// noiseChunk.updateForZ(cellEndBlockZ, realZ);
 									// BlockState blockState = noiseChunk.getInterpolatedState();
 									// TODO actual gen instead of that hack
-									BlockState air = Blocks.AIR.defaultBlockState();
-									BlockState stone = Blocks.LIGHT_GRAY_CONCRETE.defaultBlockState();
-
-									float height = 60 + completed.get(cellEndBlockX, cellEndBlockZ);
-									BlockState blockState = height < cellEndBlockY ? air : stone;
+									float height = 50 + completed.get(cellEndBlockX, cellEndBlockZ);
+									BlockState blockState;
+									if (cellEndBlockY <= height) {
+										blockState = STONE;
+									} else if (cellEndBlockY <= 60) {
+										blockState = WATER;
+									} else {
+										blockState = AIR;
+									}
 									if (blockState == null) {
 										blockState = this.settings.value().defaultBlock();
 									}
 
-									if (blockState != air && !SharedConstants.debugVoidTerrain(chunk.getPos())) {
+									if (blockState != AIR && !SharedConstants.debugVoidTerrain(chunk.getPos())) {
 										levelChunkSection.setBlockState(localX, localY, localZ, blockState, false);
 										heightmapOcean.update(localX, cellEndBlockY, localZ, blockState);
 										heightmapSurface.update(localX, cellEndBlockY, localZ, blockState);

@@ -4,11 +4,13 @@ import org.slf4j.Logger;
 
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import teluri.mods.jle.JustLikeErosion;
+import teluri.mods.jle.gen.BigRegionData;
 
 public class FloodFillEngine {
 	public static final Logger LOGGER = JustLikeErosion.LOGGER;
 
 	protected LongArrayFIFOQueue scheduled = new LongArrayFIFOQueue(); // TODO replace by a long array manually managed
+	protected LongArrayFIFOQueue scheduledNext = new LongArrayFIFOQueue();
 
 	// protected ArrayDeque<FloodFillCursor> available = new ArrayDeque<>();
 	// protected ArrayDeque<FloodFillCursor> scheduled = new ArrayDeque<>();
@@ -17,42 +19,47 @@ public class FloodFillEngine {
 		// FloodFillCursor cursor = available.pollFirst();
 		// cursor = cursor != null ? cursor : new FloodFillCursor();
 		// scheduled.addLast(cursor.set(x, y, value, next));
-		scheduled.enqueue(getPacked(x, y, value, next));
+		scheduledNext.enqueue(getPacked(x, y, value, next));
 	}
 
 	public long getPacked(int x, int y, float value, Direction next) {
 		return FloodFillCursor.packCursor(x, y, value, next);
 	}
 
-	@FunctionalInterface
-	public static interface BoundsChecker {
-		boolean isInBounds(int x, int y);
-	}
-
-	public boolean processScheduled(BoundsChecker checker, CursorConsumer cc) {
+	public boolean processScheduled(BoundsChecker checker, NextValProvider nvp, CursorConsumer cc) {
 		boolean stable = true;
 		long count = 0;
-		while (!scheduled.isEmpty()) {
-			long packedCursor = scheduled.dequeueLong();
-			// FloodFillCursor cursor = scheduled.pollFirst();
-			// int x = cursor.x;
-			// int y = cursor.y;
-			// float value = cursor.value;
-			// Direction origin = cursor.origin;
-			// stable &= cc.consume(x, y, value, origin);
-			stable &= usePacked(packedCursor, cc, checker);
-			count++;
+		while (!scheduledNext.isEmpty()) {
+			LongArrayFIFOQueue tmp = scheduled;
+			scheduled = scheduledNext;
+			scheduledNext = tmp;
+			// LOGGER.info(String.format("next batch at %d steps", scheduled.size()));
+			while (!scheduled.isEmpty()) {
+				long packedCursor = scheduled.dequeueLastLong();
+				// FloodFillCursor cursor = scheduled.pollFirst();
+				// int x = cursor.x;
+				// int y = cursor.y;
+				// float value = cursor.value;
+				// Direction origin = cursor.origin;
+				// stable &= cc.consume(x, y, value, origin);
+				stable &= usePacked(packedCursor, cc, checker, nvp);
+				count++;
+			}
 		}
-		LOGGER.info(String.format("floodfill completed as %s in %d steps", stable ? "stable  " : "unstable", count));
+		if (count != 0) {
+			float ratio = count / BigRegionData.SIZE_SQUARED;
+			LOGGER.info(String.format("floodfill completed as %s in %d steps (r:%.3f)", stable ? "stable  " : "unstable", count, ratio));
+		}
 		return stable;
 	}
 
-	protected boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker) {
+	protected boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker, NextValProvider nvp) {
 		int x = FloodFillCursor.unpackX(packedCursor);
 		int y = FloodFillCursor.unpackY(packedCursor);
 		float value = FloodFillCursor.unpackValue(packedCursor);
 		Direction previous = FloodFillCursor.unpackDir(packedCursor);
 		boolean stable = true;
+		float nextval = nvp.getVal(x, y);
 		for (Direction dir : Direction.VALUES) {
 			if (dir.opposite() == previous) {
 				continue;
@@ -62,14 +69,25 @@ public class FloodFillEngine {
 			if (!checker.isInBounds(x2, y2)) {
 				continue;
 			}
-			stable &= cc.consume(x2, y2, value, dir);
+			float fullnextval = value + nextval * dir.dist;
+			stable &= cc.consume(x2, y2, fullnextval, dir);
 		}
 		return stable;
 	}
 
 	@FunctionalInterface
+	public static interface BoundsChecker {
+		boolean isInBounds(int x, int y);
+	}
+
+	@FunctionalInterface
 	public static interface CursorConsumer {
 		boolean consume(int x, int y, float value, Direction origin);
+	}
+
+	@FunctionalInterface
+	public static interface NextValProvider {
+		float getVal(int x, int y);
 	}
 
 	public static class FloodFillCursor {
@@ -125,7 +143,7 @@ public class FloodFillEngine {
 
 	public static class FloodFillEngineValueless extends FloodFillEngine {
 		@Override
-		public boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker) {
+		public boolean usePacked(long packedCursor, CursorConsumer cc, BoundsChecker checker, NextValProvider nvp) {
 			int x = PackingHelper.unpackX(packedCursor);
 			int y = PackingHelper.unpackY(packedCursor);
 			float value = 0;
@@ -145,6 +163,10 @@ public class FloodFillEngine {
 		@Override
 		public long getPacked(int x, int y, float value, Direction next) {
 			return PackingHelper.pack(x, y);
+		}
+
+		public boolean processScheduled(CursorConsumer cc) {
+			return super.processScheduled((x, y) -> true, (x, y) -> 0, cc);
 		}
 	}
 

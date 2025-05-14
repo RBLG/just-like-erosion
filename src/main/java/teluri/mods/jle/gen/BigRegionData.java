@@ -20,17 +20,15 @@ public class BigRegionData {
 	public static final int LAST_ = SIZE - 1;
 	public static final int FIRST = 0;
 
-	public static final float THRESHHOLD = 0.1f;
-
-	protected static final float SPEED = 0.7f;
+	public static final float THRESHHOLD = 0.30f;
 
 	// protected float[] shores; // up to source spread (it get baked in height data)
 	// protected float[] toughness; // up to flow spread or even later
 	protected float[] height; // up to final output. stable
 
-	protected final int oworx; // TODO decide if as chunk or block pos + handle convertion
-	protected final int owory; // world pos, not region pos
-	protected final int oregx;
+	protected final int oworx; // world pos origin
+	protected final int owory;
+	protected final int oregx; // region pos
 	protected final int oregy;
 
 	protected final ValueSupplier shore;
@@ -41,7 +39,7 @@ public class BigRegionData {
 	// To be reset each request
 	public boolean stable = false;
 	public boolean hasWater = false;
-	public boolean rangedStable = false; // TODO improve
+	public boolean rangedStable = false; // TODO improve (how?)
 
 	public BigRegionData(int regx, int regy, ValueSupplier nshoreSupplier, ValueSupplier ntoughnessSupplier) {
 		oworx = regx * SIZE;
@@ -74,8 +72,8 @@ public class BigRegionData {
 				float value = shore.getValue(oworx + itx, owory + ity); // TODO store noise corners
 				if (value < THRESHHOLD) {
 					// LOGGER.info("found water");
-					height[getIndex(itx, ity)] = 0;
-					ffe.schedule(ity, itx, value, Direction.NONE);
+					height[getIndex(itx, ity)] = 0;// (value - THRESHHOLD) * 10;
+					ffe.schedule(itx, ity, 0, Direction.NONE);
 					hasWater = true;
 				}
 			}
@@ -85,18 +83,7 @@ public class BigRegionData {
 
 	public boolean propagateLocalHeight() {
 		// LOGGER.info(String.format("propagating for region %d,%d...", oregx, oregy));
-		stable = ffe.processScheduled(BigRegionData::isInRelativeBounds, (x, y, value, previous) -> {
-			int index = getIndex(x, y);
-			float curval = height[index];
-			boolean lower = value < curval;
-			if (lower) {
-				// LOGGER.info(String.format("propagating, %.3f was lower than %.3f", value, curval));
-				height[index] = value;
-				float nextval = getNextVal(value, x, y);
-				ffe.schedule(x, y, nextval, previous);
-			}
-			return !lower;
-		});
+		stable = ffe.processScheduled(BigRegionData::isInRelativeBounds, this::getNextVal, this::processStep);
 		return stable;
 	}
 
@@ -107,14 +94,13 @@ public class BigRegionData {
 		if (lower) {
 			// LOGGER.info(String.format("propagating, %.3f was lower than %.3f", value, curval));
 			height[index] = value;
-			float nextval = getNextVal(value, x, y);
-			ffe.schedule(x, y, nextval, previous);
+			ffe.schedule(x, y, value, previous);
 		}
 		return !lower;
 	}
 
-	protected float getNextVal(float value, int x, int y) {
-		return value + Math.clamp(strength.getValue(oworx + x, owory + y) + 0.1f, 0, 1) * SPEED;
+	protected float getNextVal(int x, int y) {
+		return strength.getValue(oworx + x, owory + y);
 	}
 
 	public static boolean isInRelativeBounds(int nx, int ny) {
@@ -123,25 +109,37 @@ public class BigRegionData {
 
 	public void propagateHeightOnSouthBorder(BigRegionData neib) {
 		for (int itx = 0; itx < SIZE; itx++) {
-			propagateHeightOnBorder(this, neib, itx, itx, LAST_, FIRST);
-			propagateHeightOnBorder(neib, this, itx, itx, FIRST, LAST_);
+			propagateHeightOnBorder(this, neib, itx, itx, LAST_, FIRST, Direction.NORTH);
+			propagateHeightOnBorder(neib, this, itx, itx, FIRST, LAST_, Direction.SOUTH);
+			if (itx != 0) {
+				propagateHeightOnBorder(this, neib, itx, itx - 1, LAST_, FIRST, Direction.NORTH_WEST);
+				propagateHeightOnBorder(neib, this, itx, itx - 1, FIRST, LAST_, Direction.SOUTH_WEST);
+			} else if (itx != LAST_) {
+				propagateHeightOnBorder(this, neib, itx, itx + 1, LAST_, FIRST, Direction.NORTH_EAST);
+				propagateHeightOnBorder(neib, this, itx, itx + 1, FIRST, LAST_, Direction.SOUTH_EAST);
+			}
 		}
 	}
 
 	public void propagateHeightOnEastBorder(BigRegionData neib) {
 		for (int ity = 0; ity < SIZE; ity++) {
-			propagateHeightOnBorder(this, neib, LAST_, FIRST, ity, ity);
-			propagateHeightOnBorder(neib, this, FIRST, LAST_, ity, ity);
+			propagateHeightOnBorder(this, neib, LAST_, FIRST, ity, ity, Direction.EAST);
+			propagateHeightOnBorder(neib, this, FIRST, LAST_, ity, ity, Direction.WEST);
+			if (ity != 0) {
+				propagateHeightOnBorder(this, neib, LAST_, FIRST, ity, ity - 1, Direction.NORTH_EAST);
+				propagateHeightOnBorder(neib, this, FIRST, LAST_, ity, ity - 1, Direction.SOUTH_EAST);
+			} else if (ity != LAST_) {
+				propagateHeightOnBorder(this, neib, LAST_, FIRST, ity, ity + 1, Direction.NORTH_WEST);
+				propagateHeightOnBorder(neib, this, FIRST, LAST_, ity, ity + 1, Direction.SOUTH_WEST);
+			}
 		}
 	}
 
-	public static void propagateHeightOnBorder(BigRegionData curr, BigRegionData neib, int thisx, int neibx, int thisy, int neiby) {
+	public static void propagateHeightOnBorder(BigRegionData curr, BigRegionData neib, int thisx, int neibx, int thisy, int neiby, Direction dir) {
 		if (!curr.stable) {
 			float lval = curr.height[getIndex(thisx, thisy)];
-			float nextval = curr.getNextVal(lval, thisx, thisy);
-			// neib.ffe.schedule(neibx, neiby, nextval, null);
-			neib.processStep(neibx, neiby, nextval, Direction.NONE);
-			// neib.ffe.schedule(neibx, neiby, nextval, null);
+			float nextval = lval + curr.getNextVal(thisx, thisy) * dir.dist;
+			neib.processStep(neibx, neiby, nextval, dir);
 			// TODO add 2 more schedule for 8 way flood fill
 		}
 	}

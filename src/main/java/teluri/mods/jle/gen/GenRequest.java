@@ -7,7 +7,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry;
 import teluri.mods.jle.JustLikeErosion;
 import teluri.mods.jle.floodfill.Direction;
-import teluri.mods.jle.floodfill.FloodFillEngine;
+import teluri.mods.jle.floodfill.FloodFillEngine.FloodFillEngineValueless;
 import teluri.mods.jle.floodfill.PackingHelper;
 import teluri.mods.jle.gen.JleWorldGenEngine.ChunkData;
 import teluri.mods.jle.gen.JleWorldGenEngine.HeightSupplier;
@@ -26,7 +26,7 @@ public class GenRequest {
 
 	JleWorldGenEngine jwge; // TODO replace it by a supplier
 
-	FloodFillEngine ffe = new FloodFillEngine.FloodFillEngineValueless();
+	FloodFillEngineValueless ffe = new FloodFillEngineValueless();
 
 	public GenRequest(JleWorldGenEngine njwge, int wox, int woy) {
 		jwge = njwge;
@@ -78,7 +78,7 @@ public class GenRequest {
 		LOGGER.info("done!");
 	}
 
-	public static final int SAFETY_RANGE = 2;// TODO replace by range estimate from toughness
+	public static final int SAFETY_RANGE = 3;// TODO replace by range estimate from toughness
 
 	public void findWater() {
 		long[] range = new long[] { Long.MAX_VALUE / 2 }; // HACK replace with proper boxing
@@ -86,7 +86,7 @@ public class GenRequest {
 		ffe.schedule(oreg.x, oreg.y, 0, Direction.NONE);
 
 		LOGGER.info("starting floodfill");
-		ffe.processScheduled((x, y) -> true, (regx, regy, unused, dir) -> {
+		ffe.processScheduled((regx, regy, unused, dir) -> {
 			long packed = PackingHelper.pack(regx, regy);
 			if (this.regions.containsKey(packed)) {
 				return true;
@@ -99,6 +99,13 @@ public class GenRequest {
 			}
 			boolean hasWater = region.scheduleShores();
 
+			//int d1 = Math.abs(regx - oreg.x);
+			//int d2 = Math.abs(regy - oreg.y);
+			//int dmin = Math.min(d1, d2);
+			//int dmax = Math.max(d1, d1);
+
+			// long ndist = (long) dmax;
+			// long ndist = (long) Math.ceil(dmax - dmin + dmin * Direction.NORTH_EAST.dist); //TODO
 			long ndist = oreg.gridDistance(regx, regy);
 			long nsafedist = ndist + SAFETY_RANGE;
 
